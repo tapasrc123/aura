@@ -1,0 +1,8 @@
+# We use CODEOWNERS as a way to give the community the chance to see who are the main contacts for certain tests
+# The persons added have no obligation to respond but will always try
+
+*                 @tapasrc123/core-module
+tests/Aura/    @tapasrc123/core-tests
+tests/EIDSCA/     @tapasrc123/eidsca
+tests/CISA/       @tapasrc123/cisa
+website/          @tapasrc123/docs

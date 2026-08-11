@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Configuration>
+  <ViewDefinitions>
+    <!-- List View - For detailed multi-line display of details. -->
+    <View>
+      <Name>Aura.Connections.List</Name>
+      <ViewSelectedBy>
+        <TypeName>Aura.Connections</TypeName>
+      </ViewSelectedBy>
+      <ListControl>
+        <ListEntries>
+          <ListEntry>
+            <ListItems>
+              <ListItem>
+                <ItemSelectionCondition>
+                  <ScriptBlock>
+                    $_.ServicesChecked -contains 'All' -or $_.ServicesChecked -contains 'Graph'
+                  </ScriptBlock>
+                </ItemSelectionCondition>
+                <Label>Microsoft Graph</Label>
+                <ScriptBlock>
+                  if ($_.Graph) {
+                    $ScopeDetails = $_.GraphScopeDetails
+                    $IncludedScopes = @($ScopeDetails.IncludedScopes)
+                    $MissingScopes = @($ScopeDetails.MissingScopes)
+
+                    "Connected`n" +
+                    "Tenant ID:       $($_.Graph.TenantId)`n" +
+                    "Environment:     $($_.Graph.Environment)`n" +
+                    "Account:         $($_.Graph.Account)`n" +
+                    "Included scopes: $($IncludedScopes.Count)`n" +
+                    $(if ($IncludedScopes.Count -gt 0) {
+                      "Included:        $($IncludedScopes -join ', ')`n"
+                    } else {
+                      ''
+                    }) +
+                    $(if ($ScopeDetails.EvaluationStatus -eq 'Succeeded') {
+                      "Missing scopes:  $($MissingScopes.Count)`n" +
+                      $(if ($MissingScopes.Count -gt 0) {
+                        "Missing:         $($MissingScopes -join ', ')`n"
+                      } else {
+                        ''
+                      })
+                    } else {
+                      "Missing scopes:  (scope evaluation failed)`n"
+                    })
+                  } else {
+                    'Not connected'
+                  }
+                </ScriptBlock>
+              </ListItem>
+              <ListItem>
+                <ItemSelectionCondition>
+                  <ScriptBlock>
+                    $_.ServicesChecked -contains 'All' -or $_.ServicesChecked -contains 'Azure'
+                  </ScriptBlock>
+                </ItemSelectionCondition>
+                <Label>Azure</Label>
+                <ScriptBlock>
+                  if ($_.Azure) {
+                    "Connected`n" +
+                    "Tenant ID:    $($_.Azure.Tenant)`n" +
+                    "Environment:  $($_.Azure.Environment)`n" +
+                    "Account:      $($_.Azure.Account)`n" +
+                    "Subscription: $($_.Azure.Subscription)`n"
+                  } else {
+                    'Not connected'
+                  }
+                </ScriptBlock>
+              </ListItem>
+              <ListItem>
+                <ItemSelectionCondition>
+                  <ScriptBlock>
+                    $_.ServicesChecked -contains 'All' -or $_.ServicesChecked -contains 'AzureDevOps'
+                  </ScriptBlock>
+                </ItemSelectionCondition>
+                <Label>Azure DevOps</Label>
+                <ScriptBlock>
+                  if ($_.AzureDevOps) {
+                    "Connected`n" +
+                    "Organization: $($_.AzureDevOps.Organization)`n"
+                  } else {
+                    'Not connected'
+                  }
+                </ScriptBlock>
+              </ListItem>
+              <ListItem>
+                <ItemSelectionCondition>
+                  <ScriptBlock>
+                    $_.ServicesChecked -contains 'All' -or $_.ServicesChecked -contains 'ExchangeOnline'
+                  </ScriptBlock>
+                </ItemSelectionCondition>
+                <Label>Exchange Online</Label>
+                <ScriptBlock>
+                  if ($_.ExchangeOnline) {
+                    "Connected`n" +
+                    "Tenant ID:     $($_.ExchangeOnline.TenantId)`n" +
+                    "Organization:  $($_.ExchangeOnline.Organization)`n" +
+                    "UPN:           $($_.ExchangeOnline.UserPrincipalName)`n"
+                  } else {
+                    'Not connected'
+                  }
+                </ScriptBlock>
+              </ListItem>
+              <ListItem>
+                <ItemSelectionCondition>
+                  <ScriptBlock>
+                    $_.ServicesChecked -contains 'All' -or
+                      $_.ServicesChecked -contains 'EOP' -or
+                      $_.ServicesChecked -contains 'SecurityCompliance'
+                  </ScriptBlock>
+                </ItemSelectionCondition>
+                <Label>Exchange Online Protection</Label>
+                <ScriptBlock>
+                  if ($_.ExchangeOnlineProtection) {
+                    "Connected`n" +
+                    "Tenant ID:     $($_.ExchangeOnlineProtection.TenantId)`n" +
+                    "Organization:  $($_.ExchangeOnlineProtection.Organization)`n" +
+                    "UPN:           $($_.ExchangeOnlineProtection.UserPrincipalName)`n"
+                  } else {
+                    'Not connected'
+                  }
+                </ScriptBlock>
+              </ListItem>
+              <ListItem>
+                <ItemSelectionCondition>
+                  <ScriptBlock>
+                    $_.ServicesChecked -contains 'All' -or $_.ServicesChecked -contains 'SharePointOnline'
+                  </ScriptBlock>
+                </ItemSelectionCondition>
+                <Label>SharePoint Online</Label>
+                <ScriptBlock>
+                  if ($_.SharePointOnline) {
+                    "Connected`n" +
+                    "URL:          $($_.SharePointOnline.Url)`n" +
+                    "Tenant:       $($_.SharePointOnline.Tenant)`n"
+                  } else {
+                    'Not connected'
+                  }
+                </ScriptBlock>
+              </ListItem>
+              <ListItem>
+                <ItemSelectionCondition>
+                  <ScriptBlock>
+                    $_.ServicesChecked -contains 'All' -or $_.ServicesChecked -contains 'Teams'
+                  </ScriptBlock>
+                </ItemSelectionCondition>
+                <Label>Microsoft Teams</Label>
+                <ScriptBlock>
+                  if ($_.Teams) {
+                    "Connected`n" +
+                    "Tenant ID:        $($_.Teams.TenantId)`n" +
+                    "Display Name:     $($_.Teams.DisplayName) `n" +
+                    "Service Instance: $($_.Teams.ServiceInstance)`n"
+                  } else {
+                    'Not connected'
+                  }
+                </ScriptBlock>
+              </ListItem>
+              <ListItem>
+                <ItemSelectionCondition>
+                  <ScriptBlock>
+                    $_.ServicesChecked -contains 'ActiveDirectory'
+                  </ScriptBlock>
+                </ItemSelectionCondition>
+                <Label>Active Directory</Label>
+                <ScriptBlock>
+                  if ($_.ActiveDirectory) {
+                    "Connected`n" +
+                    "Domain Controller:       $($_.ActiveDirectory.DomainController)`n" +
+                    "Default Naming Context:  $($_.ActiveDirectory.DefaultNamingContext)`n" +
+                    "Configuration Context:   $($_.ActiveDirectory.ConfigurationNamingContext)`n" +
+                    "Schema Naming Context:   $($_.ActiveDirectory.SchemaNamingContext)`n"
+                  } else {
+                    'Not connected'
+                  }
+                </ScriptBlock>
+              </ListItem>
+              <ListItem>
+                <ItemSelectionCondition>
+                  <ScriptBlock>
+                    $_.ServicesChecked -contains 'GitHub'
+                  </ScriptBlock>
+                </ItemSelectionCondition>
+                <Label>GitHub</Label>
+                <ScriptBlock>
+                  if ($_.GitHub) {
+                    $connectedText = if ($_.GitHub.Connected) { 'Connected' } else { 'Not connected' }
+                    "$connectedText`n" +
+                    "Organization:                       $($_.GitHub.Organization)`n" +
+                    "Token Login:                        $($_.GitHub.TokenLogin)`n" +
+                    "API Base URI:                       $($_.GitHub.ApiBaseUri)`n" +
+                    "Role:                               $($_.GitHub.Role)`n" +
+                    "Role State:                         $($_.GitHub.RoleState)`n" +
+                    "Administration Permission Verified: $($_.GitHub.AdministrationPermissionVerified)`n"
+                  } else {
+                    'Not connected'
+                  }
+                </ScriptBlock>
+              </ListItem>
+            </ListItems>
+          </ListEntry>
+        </ListEntries>
+      </ListControl>
+    </View>
+  </ViewDefinitions>
+</Configuration>

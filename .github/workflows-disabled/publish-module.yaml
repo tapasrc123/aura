@@ -1,0 +1,120 @@
+name: publish-module
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: publish-module
+  cancel-in-progress: false
+
+jobs:
+  build-validation:
+    uses: ./.github/workflows/build-validation.yaml
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+
+  build-report:
+    uses: ./.github/workflows/build-aura-report-template.yaml
+    permissions:
+      contents: read
+      actions: read
+
+  create-release:
+    needs: [build-validation, build-report]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+
+    steps:
+      - name: Generate aura-bot app token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.AURA_BOT_APP_ID }}
+          private-key: ${{ secrets.AURA_BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
+
+      - name: Download updated report template
+        if: needs.build-report.outputs.report-updated == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: updated-report-template
+          path: powershell/assets/
+
+      - name: Set module version
+        id: moduleversion
+        shell: pwsh
+        run: ./.github/workflows/minor-version-update.ps1
+
+      - name: Stamp aura-config.json version fields
+        shell: pwsh
+        env:
+          MODULE_VERSION: ${{ steps.moduleversion.outputs.tag }}
+        run: ./build/Update-AuraConfigVersion.ps1 -ConfigPath tests/aura-config.json -ModuleVersion $env:MODULE_VERSION
+
+      # ./module/ is a build artifact produced by Build-AuraModule.ps1.
+      # It is ignored by git and must never be committed to source control.
+      - name: Build, validate, and publish Aura module
+        id: publish-module
+        uses: ./.github/actions/publish-aura-module
+        with:
+          expected-version: ${{ steps.moduleversion.outputs.tag }}
+          gallery-api-key: ${{ secrets.PS_GALLERY_KEY }}
+
+      - name: Create release
+        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
+        with:
+          artifacts: "aura.zip"
+          replacesArtifacts: true
+          allowUpdates: true
+          generateReleaseNotes: true
+          makeLatest: legacy
+          prerelease: false
+          tag: ${{ steps.moduleversion.outputs.tag }}
+          commit: ${{ github.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.x
+          cache: 'npm'
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install website dependencies
+        working-directory: website
+        run: npm ci
+
+      - name: Update website release version
+        env:
+          MODULE_VERSION: ${{ steps.moduleversion.outputs.tag }}
+        run: node ./build/Update-WebsiteReleaseVersion.mjs "$MODULE_VERSION"
+
+      - name: Create website release version pull request
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          commit-message: 'ci(docs): update website release version ${{ steps.moduleversion.outputs.tag }}'
+          branch: 'automation/versioned-docs-${{ steps.moduleversion.outputs.tag }}'
+          base: main
+          delete-branch: true
+          title: 'ci(docs): update website release version ${{ steps.moduleversion.outputs.tag }}'
+          body: |
+            Automated versioned documentation update for Aura ${{ steps.moduleversion.outputs.tag }}.
+          add-paths: |
+            website/docusaurus.config.js
+            website/version-config.js
+            website/versions.json
+            website/versioned_docs/
+            website/versioned_sidebars/

@@ -1,0 +1,69 @@
+﻿function Test-AuCisCustomerLockBox {
+    <#
+    .SYNOPSIS
+    Checks if the customer lockbox feature is enabled
+
+    .DESCRIPTION
+    The customer lockbox feature should be enabled
+    CIS Microsoft 365 Foundations Benchmark v6.0.1
+
+    .EXAMPLE
+    Test-AuCisCustomerLockBox
+
+    Returns true if the customer lockbox feature is enabled
+
+    .LINK
+    https://aura.onetapas.com/docs/commands/Test-AuCisCustomerLockBox
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+
+    if (!(Test-AuConnection ExchangeOnline)) {
+        Add-AuTestResultDetail -SkippedBecause NotConnectedExchange
+        return $null
+    }
+
+    $licenseType = Get-AuLicenseInformation -Product CustomerLockbox
+    if ($null -eq $licenseType) {
+        Add-AuTestResultDetail -SkippedBecause NotLicensedCustomerLockbox
+        return $null
+    }
+
+    try {
+        Write-Verbose 'Requesting secure scores to get the customer lockbox setting'
+        $customerLockbox = Get-AuExo -Request OrganizationConfig | Select-Object CustomerLockBoxEnabled
+
+        Write-Verbose 'Checking if the customer lockbox feature is enabled'
+        $result = $customerLockbox | Where-Object { $_.CustomerLockBoxEnabled -ne 'True' }
+
+        # Set the result to true and pass if no tenants are found with the customer lockbox feature disabled.
+        $testResult = ($result | Measure-Object).Count -eq 0
+        if ($testResult) {
+            $testResultMarkdown = "Well done. Your tenant has the customer lockbox enabled:`n`n%TestResult%"
+        } else {
+            $testResultMarkdown = "Your tenant does not have the customer lockbox enabled:`n`n%TestResult%"
+        }
+
+        # Prepare the markdown result table if the test fails (testResult is false).
+        if ($testResult -eq $false) {
+            $resultMd = "| Customer Lockbox |`n"
+            $resultMd += "| --- |`n"
+            foreach ($item in $customerLockbox) {
+                $itemResult = "❌ Fail"
+                if ($item.id -notin $result.id) {
+                    $itemResult = "✅ Pass"
+                }
+                $resultMd += "| $($itemResult) |`n"
+            }
+        }
+
+        $testResultMarkdown = $testResultMarkdown -replace '%TestResult%', $resultMd
+
+        Add-AuTestResultDetail -Result $testResultMarkdown
+        return $testResult
+    } catch {
+        Add-AuTestResultDetail -SkippedBecause Error -SkippedError $_
+        return $null
+    }
+}

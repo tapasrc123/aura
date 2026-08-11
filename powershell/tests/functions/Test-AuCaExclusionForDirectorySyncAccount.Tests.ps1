@@ -1,0 +1,345 @@
+﻿Describe 'Test-AuCaExclusionForDirectorySyncAccount' {
+    BeforeAll {
+        Mock -ModuleName Aura Get-AuLicenseInformation { return 'P1' }
+        Mock -ModuleName Aura Add-AuTestResultDetail {}
+
+        # Role template IDs returned by Get-AuRoleInfo
+        $script:DirSyncRoleId = 'd29b2b05-8046-44ba-8758-1e26182fcf32'
+        $script:OnPremRoleId = 'a92aed5d-d78a-4d16-b381-09adb37eb3b0'
+
+        # Sample sync account member IDs
+        $script:syncUserId1 = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+        $script:syncUserId2 = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+        $script:syncSpId = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+
+        # Member objects as returned by Get-AuRoleMember
+        $script:syncUser1 = [PSCustomObject]@{
+            id            = $script:syncUserId1
+            '@odata.type' = '#microsoft.graph.user'
+        }
+        $script:syncUser2 = [PSCustomObject]@{
+            id            = $script:syncUserId2
+            '@odata.type' = '#microsoft.graph.user'
+        }
+        $script:syncServicePrincipal = [PSCustomObject]@{
+            id            = $script:syncSpId
+            '@odata.type' = '#microsoft.graph.servicePrincipal'
+        }
+
+        # Helper: build a minimal enabled CA policy object
+        function New-CaPolicy {
+            param(
+                [string]   $Id = 'policy1',
+                [string]   $DisplayName = 'Test Policy',
+                [string[]] $IncludeApplications = @('All'),
+                [string[]] $IncludeUsers = @('All'),
+                [string[]] $IncludeRoles = @(),
+                [string[]] $ExcludeUsers = @(),
+                [string[]] $ExcludeRoles = @(),
+                [string]   $IncludeGuestsOrExternalUsers = $null,
+                [string[]] $ClientAppTypes = @('all'),
+                [string[]] $BuiltInControls = @()
+            )
+            [PSCustomObject]@{
+                id            = $Id
+                displayName   = $DisplayName
+                state         = 'enabled'
+                conditions    = [PSCustomObject]@{
+                    applications   = [PSCustomObject]@{
+                        includeApplications = $IncludeApplications
+                    }
+                    users          = [PSCustomObject]@{
+                        includeUsers                 = $IncludeUsers
+                        includeRoles                 = $IncludeRoles
+                        excludeUsers                 = $ExcludeUsers
+                        excludeRoles                 = $ExcludeRoles
+                        includeGroups                = @()
+                        includeGuestsOrExternalUsers = $IncludeGuestsOrExternalUsers
+                    }
+                    clientAppTypes = $ClientAppTypes
+                }
+                grantControls = [PSCustomObject]@{
+                    builtInControls = $BuiltInControls
+                }
+            }
+        }
+
+        # Default mock: Get-AuRoleInfo returns role-definition objects, matching the real command.
+        Mock -ModuleName Aura Get-AuRoleInfo {
+            param($RoleName)
+            switch ($RoleName) {
+                'DirectorySynchronizationAccounts' {
+                    return [PSCustomObject]@{ Id = $script:DirSyncRoleId; IsPrivileged = $false }
+                }
+                'OnPremisesDirectorySyncAccount' {
+                    return [PSCustomObject]@{ Id = $script:OnPremRoleId; IsPrivileged = $false }
+                }
+            }
+        }
+    }
+
+    Context 'No sync account members exist in the tenant' {
+
+        BeforeEach {
+            Mock -ModuleName Aura Get-AuRoleMember { return $null }
+        }
+
+        It 'Should return true and mark test as not applicable' {
+            Mock -ModuleName Aura Get-AuConditionalAccessPolicy { return @() }
+
+            Test-AuCaExclusionForDirectorySyncAccount | Should -BeTrue
+        }
+
+        It 'Should pass role GUIDs rather than role-definition objects to Get-AuRoleMember' {
+            Mock -ModuleName Aura Get-AuConditionalAccessPolicy { return @() }
+
+            Test-AuCaExclusionForDirectorySyncAccount
+
+            Should -Invoke Get-AuRoleMember -ModuleName Aura -Times 1 -Exactly -ParameterFilter {
+                "$RoleId" -eq 'd29b2b05-8046-44ba-8758-1e26182fcf32'
+            }
+            Should -Invoke Get-AuRoleMember -ModuleName Aura -Times 1 -Exactly -ParameterFilter {
+                "$RoleId" -eq 'a92aed5d-d78a-4d16-b381-09adb37eb3b0'
+            }
+        }
+    }
+
+    Context 'Service principal-only members (ABA — Application-Based Authentication, Entra Connect v2.5.76.0+)' {
+
+        BeforeEach {
+            # Only a service principal is in the role — this is the ABA pattern (Entra Connect v2.5.76.0+).
+            # The new code returns true early (before iterating policies) with an informative ABA message.
+            Mock -ModuleName Aura Get-AuRoleMember { return $script:syncServicePrincipal }
+            Mock -ModuleName Aura Get-AuConditionalAccessPolicy {
+                return @(New-CaPolicy -ExcludeUsers @() -ExcludeRoles @())
+            }
+        }
+
+        It 'Should return true because ABA service principals are not subject to CA policies' {
+            Test-AuCaExclusionForDirectorySyncAccount | Should -BeTrue
+        }
+    }
+
+    Context 'Policy does not target all applications' {
+
+        BeforeEach {
+            Mock -ModuleName Aura Get-AuRoleMember { return $script:syncUser1 }
+            Mock -ModuleName Aura Get-AuConditionalAccessPolicy {
+                return @(New-CaPolicy -IncludeApplications @('00000002-0000-0ff1-ce00-000000000000') -ExcludeUsers @() -ExcludeRoles @())
+            }
+        }
+
+        It 'Should return true because policy is not scoped to all apps' {
+            Test-AuCaExclusionForDirectorySyncAccount | Should -BeTrue
+        }
+    }
+
+    Context 'Policy only targets guests (no internal users)' {
+
+        BeforeEach {
+            Mock -ModuleName Aura Get-AuRoleMember { return $script:syncUser1 }
+            Mock -ModuleName Aura Get-AuConditionalAccessPolicy {
+                return @(New-CaPolicy -IncludeUsers @() -IncludeGuestsOrExternalUsers 'b2bCollaborationGuest' -ExcludeUsers @() -ExcludeRoles @())
+            }
+        }
+
+        It 'Should return true because policy does not scope internal users' {
+            Test-AuCaExclusionForDirectorySyncAccount | Should -BeTrue
+        }
+    }
+
+    Context 'Policy only blocks legacy authentication' {
+
+        BeforeEach {
+            Mock -ModuleName Aura Get-AuRoleMember { return $script:syncUser1 }
+            Mock -ModuleName Aura Get-AuConditionalAccessPolicy {
+                return @(New-CaPolicy -ClientAppTypes @('exchangeActiveSync', 'other') -BuiltInControls @('block') -ExcludeUsers @() -ExcludeRoles @())
+            }
+        }
+
+        It 'Should return true because policy only blocks legacy auth which sync does not use' {
+            Test-AuCaExclusionForDirectorySyncAccount | Should -BeTrue
+        }
+    }
+
+    Context 'Policy targets all users and sync account is excluded by DirectorySynchronizationAccounts role' {
+
+        BeforeEach {
+            Mock -ModuleName Aura Get-AuRoleMember { return $script:syncUser1 }
+            Mock -ModuleName Aura Get-AuConditionalAccessPolicy {
+                return @(New-CaPolicy -ExcludeRoles @($script:DirSyncRoleId))
+            }
+        }
+
+        It 'Should return true' {
+            Test-AuCaExclusionForDirectorySyncAccount | Should -BeTrue
+        }
+    }
+
+    Context 'Policy targets all users and sync account is excluded by OnPremisesDirectorySyncAccount role' {
+
+        BeforeEach {
+            Mock -ModuleName Aura Get-AuRoleMember { return $script:syncUser1 }
+            Mock -ModuleName Aura Get-AuConditionalAccessPolicy {
+                return @(New-CaPolicy -ExcludeRoles @($script:OnPremRoleId))
+            }
+        }
+
+        It 'Should return true' {
+            Test-AuCaExclusionForDirectorySyncAccount | Should -BeTrue
+        }
+    }
+
+    Context 'Policy targets all users and all sync user members are individually excluded' {
+
+        BeforeEach {
+            Mock -ModuleName Aura Get-AuRoleMember { return @($script:syncUser1, $script:syncUser2) }
+            Mock -ModuleName Aura Get-AuConditionalAccessPolicy {
+                return @(New-CaPolicy -ExcludeUsers @($script:syncUserId1, $script:syncUserId2))
+            }
+        }
+
+        It 'Should return true' {
+            Test-AuCaExclusionForDirectorySyncAccount | Should -BeTrue
+        }
+    }
+
+    Context 'Policy targets all users and sync account is NOT excluded' {
+
+        BeforeEach {
+            Mock -ModuleName Aura Get-AuRoleMember { return $script:syncUser1 }
+            Mock -ModuleName Aura Get-AuConditionalAccessPolicy {
+                return @(New-CaPolicy -ExcludeUsers @() -ExcludeRoles @())
+            }
+        }
+
+        It 'Should return false' {
+            Test-AuCaExclusionForDirectorySyncAccount | Should -BeFalse
+        }
+    }
+
+    Context 'Policy targets all users and sync accounts are only partially excluded by user IDs' {
+
+        BeforeEach {
+            # Two user members but only one is excluded
+            Mock -ModuleName Aura Get-AuRoleMember { return @($script:syncUser1, $script:syncUser2) }
+            Mock -ModuleName Aura Get-AuConditionalAccessPolicy {
+                return @(New-CaPolicy -ExcludeUsers @($script:syncUserId1))
+            }
+        }
+
+        It 'Should return false because not all user members are excluded' {
+            Test-AuCaExclusionForDirectorySyncAccount | Should -BeFalse
+        }
+    }
+
+    Context 'Policy targets all users and sync accounts are only partially excluded (service principal skipped, one user excluded)' {
+
+        BeforeEach {
+            # One user + one service principal; only the user is excluded
+            Mock -ModuleName Aura Get-AuRoleMember { return @($script:syncUser1, $script:syncServicePrincipal) }
+            Mock -ModuleName Aura Get-AuConditionalAccessPolicy {
+                return @(New-CaPolicy -ExcludeUsers @($script:syncUserId1))
+            }
+        }
+
+        It 'Should return true because the only user member is excluded and service principals are not subject to CA' {
+            Test-AuCaExclusionForDirectorySyncAccount | Should -BeTrue
+        }
+    }
+
+    Context 'Policy explicitly includes a sync account by user ID (policy designed for sync accounts)' {
+
+        BeforeEach {
+            Mock -ModuleName Aura Get-AuRoleMember { return $script:syncUser1 }
+            Mock -ModuleName Aura Get-AuConditionalAccessPolicy {
+                # Policy specifically includes the sync account ID — must not be required to also exclude it
+                return @(New-CaPolicy -IncludeUsers @($script:syncUserId1) -ExcludeUsers @() -ExcludeRoles @())
+            }
+        }
+
+        It 'Should return true because the policy is scoped specifically to the sync account' {
+            Test-AuCaExclusionForDirectorySyncAccount | Should -BeTrue
+        }
+    }
+
+    Context 'Policy explicitly includes a sync role (policy designed for sync accounts)' {
+
+        BeforeEach {
+            Mock -ModuleName Aura Get-AuRoleMember { return $script:syncUser1 }
+            Mock -ModuleName Aura Get-AuConditionalAccessPolicy {
+                # Policy scoped to the DirectorySynchronizationAccounts role — not an "all users" policy
+                return @(New-CaPolicy -IncludeUsers @() -IncludeRoles @($script:DirSyncRoleId) -ExcludeUsers @() -ExcludeRoles @())
+            }
+        }
+
+        It 'Should return true because the policy is scoped specifically to the sync role' {
+            Test-AuCaExclusionForDirectorySyncAccount | Should -BeTrue
+        }
+    }
+
+    Context 'Multiple policies — one passes, one fails' {
+
+        BeforeEach {
+            Mock -ModuleName Aura Get-AuRoleMember { return $script:syncUser1 }
+            Mock -ModuleName Aura Get-AuConditionalAccessPolicy {
+                return @(
+                    New-CaPolicy -Id 'policy-pass' -DisplayName 'Policy With Exclusion' -ExcludeRoles @($script:DirSyncRoleId),
+                    New-CaPolicy -Id 'policy-fail' -DisplayName 'Policy Without Exclusion' -ExcludeUsers @() -ExcludeRoles @()
+                )
+            }
+        }
+
+        It 'Should return false because at least one policy does not exclude sync accounts' {
+            Test-AuCaExclusionForDirectorySyncAccount | Should -BeFalse
+        }
+    }
+
+    Context 'Multiple policies — all pass (each excluded by a different sync role)' {
+
+        BeforeEach {
+            Mock -ModuleName Aura Get-AuRoleMember { return $script:syncUser1 }
+            Mock -ModuleName Aura Get-AuConditionalAccessPolicy {
+                # Hardcode GUIDs to avoid $script: variable resolution inside -ModuleName mock context
+                $p1 = New-CaPolicy -Id 'policy1' -DisplayName 'Excluded By DirSync Role' -ExcludeRoles @('d29b2b05-8046-44ba-8758-1e26182fcf32')
+                $p2 = New-CaPolicy -Id 'policy2' -DisplayName 'Excluded By OnPrem Role' -ExcludeRoles @('a92aed5d-d78a-4d16-b381-09adb37eb3b0')
+                return @($p1, $p2)
+            }
+        }
+
+        It 'Should return true because all policies exclude sync accounts' {
+            Test-AuCaExclusionForDirectorySyncAccount | Should -BeTrue
+        }
+    }
+
+    Context 'Free Entra ID license' {
+
+        It 'Should return null and skip the test' {
+            Mock -ModuleName Aura Get-AuLicenseInformation { return 'Free' }
+
+            Test-AuCaExclusionForDirectorySyncAccount | Should -BeNull
+        }
+    }
+
+    Context 'Get-AuRoleInfo returns null for both sync roles (module reload / $script:AuRoles uninitialised)' {
+
+        BeforeEach {
+            # Simulate the condition where the module was reloaded in an existing PS session and the
+            # class AuRoleDefinition redefinition failed, leaving $script:AuRoles uninitialised.
+            # Get-AuRoleInfo returns $null; Get-AuRoleMember must NOT be called with a null role ID.
+            Mock -ModuleName Aura Get-AuRoleInfo { return $null }
+            Mock -ModuleName Aura Get-AuRoleMember {}
+            Mock -ModuleName Aura Get-AuConditionalAccessPolicy { return @() }
+        }
+
+        It 'Should return true and report not applicable (no role members resolvable)' {
+            Test-AuCaExclusionForDirectorySyncAccount | Should -BeTrue
+        }
+
+        It 'Should not call Get-AuRoleMember when role info is null' {
+            Test-AuCaExclusionForDirectorySyncAccount
+            Should -Invoke Get-AuRoleMember -ModuleName Aura -Times 0 -Exactly
+        }
+    }
+
+}

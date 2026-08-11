@@ -1,0 +1,16 @@
+# Note: GitHub's community profile API may report 'files.issue_template: null' for
+# repositories that exclusively use YAML issue forms. This is a known platform API limitation.
+# The issue forms below are valid and functional. See:
+# https://github.com/orgs/community/discussions/34427
+blank_issues_enabled: true
+contact_links:
+  - name: Questions & Discussions 💬
+    url: https://github.com/tapasrc123/aura/discussions
+    about: Please share any questions or ideas in the project discussions.
+  - name: Documentation 📖
+    url: https://aura.onetapas.com/docs/intro
+    about: Aura Docs
+  - name: Known Issues ⚠️
+    url: https://github.com/tapasrc123/aura/issues
+    # Replace URL with a 'known issues' segment in the README.
+    about: Please review the known issues before creating a new one.

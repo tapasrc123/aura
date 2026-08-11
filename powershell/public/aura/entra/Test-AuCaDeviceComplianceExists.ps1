@@ -1,0 +1,57 @@
+﻿function Test-AuCaDeviceComplianceExists {
+    <#
+    .Synopsis
+    Checks if the tenant has at least one Conditional Access policy requiring device compliance.
+
+    .Description
+    Device compliance Conditional Access policy can be used to require devices to be compliant with the tenant's device compliance policy.
+
+    Learn more:
+    https://learn.microsoft.com/entra/identity/conditional-access/howto-conditional-access-policy-compliant-device
+
+    .Example
+    Test-AuCaDeviceComplianceExists
+
+    .LINK
+    https://aura.onetapas.com/docs/commands/Test-AuCaDeviceComplianceExists
+    #>
+  [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification = 'Exists is not a plural.')]
+  [CmdletBinding()]
+  [OutputType([bool])]
+  param ()
+
+  if ( ( Get-AuLicenseInformation EntraID ) -eq 'Free' ) {
+    Add-AuTestResultDetail -SkippedBecause NotLicensedEntraIDP1
+    return $null
+  }
+
+  try {
+    $policies = Get-AuConditionalAccessPolicy | Where-Object { $_.state -eq 'enabled' }
+
+    $result = $false
+
+    $testDescription = '
+It is recommended to have at least one Conditional Access policy that enforces the use of a compliant device.
+
+See [Require a compliant device, Microsoft Entra hybrid joined device, or MFA - Microsoft Learn](https://learn.microsoft.com/entra/identity/conditional-access/howto-conditional-access-policy-compliant-device)'
+    $testResult = "These Conditional Access policies enforce the use of a compliant device :`n`n"
+
+    foreach ($policy in $policies) {
+      if ($policy.grantControls.builtInControls -contains 'compliantDevice') {
+        Write-Verbose -Message "Found a Conditional Access policy requiring device compliance: $($policy.displayName)"
+        $result = $true
+        $testResult += "  - [$($policy.displayName)](https://entra.microsoft.com/#view/Microsoft_AAD_ConditionalAccess/PolicyBlade/policyId/$($($policy.id))?%23view/Microsoft_AAD_ConditionalAccess/ConditionalAccessBlade/~/Policies?=)`n"
+      }
+    }
+
+    if ($result -eq $false) {
+      $testResult = 'There was no Conditional Access policy requiring device compliance.'
+    }
+    Add-AuTestResultDetail -Description $testDescription -Result $testResult
+
+    return $result
+  } catch {
+    Add-AuTestResultDetail -SkippedBecause Error -SkippedError $_
+    return $null
+  }
+}

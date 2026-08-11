@@ -1,0 +1,58 @@
+﻿function Test-AuAppleAutomatedDeviceEnrollmentToken {
+    <#
+    .SYNOPSIS
+    Check the validity of the Apple Automated Device Enrollment (ADE) token for Intune.
+    .DESCRIPTION
+    The Apple Automated Device Enrollment (ADE) token is required to synchronize Apple devices with Microsoft Intune. This command checks if the ADE token is valid and not expired.
+
+    .EXAMPLE
+    Test-AuAppleAutomatedDeviceEnrollmentToken
+
+    Returns true if the ADE token is valid for more than 30 days, false if it is expired or expiring soon.
+
+    .LINK
+    https://aura.onetapas.com/docs/commands/Test-AuAppleAutomatedDeviceEnrollmentToken
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+
+    if (-not (Get-AuLicenseInformation -Product Intune)) {
+        Add-AuTestResultDetail -SkippedBecause NotLicensedIntune
+        return $null
+    }
+
+    try {
+        Write-Verbose 'Retrieving Apple Automated Device Enrollment token status...'
+        $expirationThresholdDays = 30
+        $adeTokens = Invoke-AuGraphRequest -RelativeUri 'deviceManagement/depOnboardingSettings' -ApiVersion beta
+
+        if (($adeTokens | Measure-Object).Count -eq 0) {
+            throw [System.Management.Automation.ItemNotFoundException]::new('No Apple Automated Device Enrollment tokens found.')
+        }
+
+        Write-Verbose ('{0} Apple Automated Device Enrollment token(s) found.' -f $adeTokens.Count)
+        $testResultMarkdown = "Intune Automated Device Enrollment Token Status:`n"
+        $testResultMarkdown += "| Name | TokenExpirationDateTime | LastSuccessfulSyncDateTime | LastSyncErrorCode |`n"
+        $testResultMarkdown += "| --- | --- | --- | --- |`n"
+
+        $healthStatus = foreach ($token in $adeTokens) {
+            $expiresInDays = [System.Math]::Ceiling(([datetime]$token.tokenExpirationDateTime - (Get-Date)).TotalDays)
+            $lastSyncDiffDays = [System.Math]::Floor(((Get-Date) - [datetime]$token.lastSuccessfulSyncDateTime).TotalDays)
+            $testResultMarkdown += "| $($token.tokenName) | $($token.tokenExpirationDateTime) | $($token.lastSuccessfulSyncDateTime) | $($token.lastSyncErrorCode) |`n"
+            Write-Output $($expiresInDays -gt $expirationThresholdDays -and $lastSyncDiffDays -eq 0)
+        }
+
+        $testResultMarkdown += '```' + "`n"
+        $testResultMarkdown += $adeTokens | ConvertTo-Json
+        $testResultMarkdown += "`n"
+        $testResultMarkdown += '```'
+
+        Add-AuTestResultDetail -Result $testResultMarkdown
+        return $healthStatus -notcontains $false
+    } catch [System.Management.Automation.ItemNotFoundException] {
+        Add-AuTestResultDetail -SkippedBecause Custom -SkippedCustomReason $_
+    } catch {
+        Add-AuTestResultDetail -SkippedBecause Error -SkippedError $_
+    }
+}

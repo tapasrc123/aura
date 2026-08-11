@@ -1,0 +1,68 @@
+﻿function Test-AuCisDevicesWithoutCompliancePolicyMarked {
+    <#
+    .SYNOPSIS
+        Checks if devices without a compliance policy assigned are marked "not compliant".
+
+    .DESCRIPTION
+        Devices without a compliance policy assigned should be marked "not compliant".
+        CIS Microsoft 365 Foundations Benchmark v6.0.1
+
+    .EXAMPLE
+        Test-AuCisDevicesWithoutCompliancePolicyMarked
+
+        Returns true if devices without a compliance policy assigned are marked "not compliant".
+
+    .LINK
+        https://aura.onetapas.com/docs/commands/Test-AuCisDevicesWithoutCompliancePolicyMarked
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+
+    if (!(Test-AuConnection Graph)) {
+        Add-AuTestResultDetail -SkippedBecause NotConnectedGraph
+        return $null
+    }
+
+    if (-not (Get-AuLicenseInformation -Product Intune)) {
+        Add-AuTestResultDetail -SkippedBecause NotLicensedIntune
+        return $null
+    }
+
+    try {
+        Write-Verbose 'Getting settings...'
+        $settings = Invoke-AuGraphRequest -RelativeUri "deviceManagement/settings" -DisableCache
+
+        Write-Verbose 'Executing checks'
+        $checkSecureByDefault = $settings | Where-Object { $_.secureByDefault -eq $true }
+
+        $testResult = (($checkSecureByDefault | Measure-Object).Count -ge 1)
+
+        if ($testResult) {
+            $testResultMarkdown = "Well done. Your tenant settings comply with CIS recommendations.`n`n%TestResult%"
+        }
+        else {
+            $testResultMarkdown = "Your tenant settings do not comply with CIS recommendations.`n`n%TestResult%"
+        }
+
+        $resultMd = "| Setting | Result |`n"
+        $resultMd += "| --- | --- |`n"
+
+        if ($checkSecureByDefault) {
+            $checkSecureByDefaultResult = '✅ Pass'
+        }
+        else {
+            $checkSecureByDefaultResult = '❌ Fail'
+        }
+
+        $resultMd += "| Mark devices with no compliance policy assigned as 'Not compliant' | $checkSecureByDefaultResult |`n"
+        $testResultMarkdown = $testResultMarkdown -replace '%TestResult%', $resultMd
+
+        Add-AuTestResultDetail -Result $testResultMarkdown
+        return $testResult
+    }
+    catch {
+        Add-AuTestResultDetail -SkippedBecause Error -SkippedError $_
+        return $null
+    }
+}
