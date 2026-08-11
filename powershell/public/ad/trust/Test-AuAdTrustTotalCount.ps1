@@ -1,0 +1,59 @@
+﻿function Test-AuAdTrustTotalCount {
+    <#
+    .SYNOPSIS
+    Counts the total number of Active Directory trusts.
+
+    .DESCRIPTION
+    This test retrieves the total count of domain trusts configured in Active Directory.
+    Domain trusts allow authentication and resource access between domains, and knowing
+    the number of trusts is essential for security assessment and trust relationship management.
+
+    .EXAMPLE
+    Test-AuAdTrustTotalCount
+
+    Returns $true if trust data is accessible, $false otherwise.
+    The test result includes the total count of trusts.
+
+    .LINK
+    https://aura.onetapas.com/docs/commands/Test-AuAdTrustTotalCount
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+
+    Write-Verbose "Starting Test-AuAdTrustTotalCount"
+
+    # Get AD domain state data (uses cached data if available)
+    $adState = Get-AuADDomainState
+
+    # If unable to retrieve AD data, skip the test
+    if ($null -eq $adState) {
+        Add-AuTestResultDetail -SkippedBecause NotConnectedActiveDirectory
+        return $null
+    }
+
+    $trusts = $adState.Trusts
+
+    # Count total trusts
+    $totalCount = ($trusts | Measure-Object).Count
+
+    # Test passes if we successfully retrieved trust data
+    $testResult = $true
+
+    # Generate markdown results
+    $result = "| Metric | Value |" + "`n"
+    $result += "| --- | --- |" + "`n"
+    $result += "| Total Trusts | $totalCount |" + "`n" + "`n"
+
+    if ($totalCount -eq 0) {
+        $testResultMarkdown = "No Active Directory trusts are configured in this domain. This is typical for single-domain environments.`n`n%TestResult%"
+    } else {
+        $testResultMarkdown = "Active Directory trust relationships have been analyzed. There are $totalCount trust(s) configured in this domain.`n`n%TestResult%"
+    }
+
+    $testResultMarkdown = $testResultMarkdown -replace "%TestResult%", $result
+
+    Add-AuTestResultDetail -Result $testResultMarkdown
+
+    return $testResult
+}

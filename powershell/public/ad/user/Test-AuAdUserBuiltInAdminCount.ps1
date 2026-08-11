@@ -1,0 +1,61 @@
+﻿function Test-AuAdUserBuiltInAdminCount {
+    <#
+    .SYNOPSIS
+    Counts built-in administrator style user accounts.
+
+    .DESCRIPTION
+    This test identifies built-in administrator style user objects by looking for
+    the built-in administrator RID (`-500`) and critical system objects. Tracking
+    these accounts helps defenders focus on highly sensitive identities that are
+    commonly targeted during Active Directory compromise.
+
+    .EXAMPLE
+    Test-AuAdUserBuiltInAdminCount
+
+    .LINK
+    https://aura.onetapas.com/docs/commands/Test-AuAdUserBuiltInAdminCount
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+
+    Write-Verbose "Starting Test-AuAdUserBuiltInAdminCount"
+    $adState = Get-AuADDomainState
+    Write-Verbose "Retrieved AD state"
+    if ($null -eq $adState) {
+        Add-AuTestResultDetail -SkippedBecause Custom -SkippedCustomReason "Not connected to Active Directory."
+        return $null
+    }
+    Write-Verbose "Filtering/counting user built in admin count"
+
+    $users = $adState.Users
+
+    $builtInAdminUsers = @($users | Where-Object {
+            $sidValue = [string]$_.SID
+            $sidValue -match '-500$' -or $_.isCriticalSystemObject -eq $true
+        })
+
+    $totalCount = ($builtInAdminUsers | Measure-Object).Count
+    $enabledCount = (@($builtInAdminUsers | Where-Object { $_.Enabled -eq $true }) | Measure-Object).Count
+    $criticalCount = (@($builtInAdminUsers | Where-Object { $_.isCriticalSystemObject -eq $true }) | Measure-Object).Count
+    $rid500Count = (@($builtInAdminUsers | Where-Object { ([string]$_.SID) -match '-500$' }) | Measure-Object).Count
+
+    $testResult = $true
+
+    $result = "| Metric | Value |" + "`n"
+    $result += "| --- | --- |" + "`n"
+    $result += "| Total Users Reviewed | $((@($users) | Measure-Object).Count) |" + "`n"
+    $result += "| Built-In Administrator Style Accounts | $totalCount |" + "`n"
+    $result += "| Enabled Built-In Administrator Style Accounts | $enabledCount |" + "`n"
+    $result += "| RID 500 Accounts | $rid500Count |" + "`n"
+    $result += "| Critical System Objects | $criticalCount |" + "`n"
+    Write-Verbose "Counts computed"
+
+    $testResultMarkdown = "Active Directory built-in administrator style accounts were counted.`n`n%TestResult%"
+    $testResultMarkdown = $testResultMarkdown -replace "%TestResult%", $result
+
+    Add-AuTestResultDetail -Result $testResultMarkdown
+    Write-Verbose "Completed Test-AuAdUserBuiltInAdminCount"
+
+    return $testResult
+}

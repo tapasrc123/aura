@@ -1,0 +1,67 @@
+﻿function Test-AuCaMfaForAllUsers {
+    <#
+    .Synopsis
+    Checks if the tenant has at least one Conditional Access policy requiring multifactor authentication for all users
+
+    .Description
+    MFA for all users Conditional Access policy can be used to require MFA for all users in the tenant.
+
+    Learn more:
+    https://learn.microsoft.com/entra/identity/conditional-access/howto-conditional-access-policy-all-users-mfa
+
+    .Example
+    Test-AuCaMfaForAllUsers
+
+    .LINK
+    https://aura.onetapas.com/docs/commands/Test-AuCaMfaForAllUsers
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '', Justification = 'AllUsers is a well known term for Conditional Access policies.')]
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param ()
+
+    if ( ( Get-AuLicenseInformation EntraID ) -eq 'Free' ) {
+        Add-AuTestResultDetail -SkippedBecause NotLicensedEntraIDP1
+        return $null
+    }
+
+    try {
+        $policies = Get-AuConditionalAccessPolicy | Where-Object { $_.state -eq 'enabled' }
+        # Remove policies that require password change, as they are related to user risk and not MFA on signin
+        $policies = $policies | Where-Object { $_.grantControls.builtInControls -notcontains 'passwordChange' }
+        $policiesResult = New-Object System.Collections.ArrayList
+
+        $result = $false
+        foreach ($policy in $policies) {
+            if (
+                (
+                    $policy.grantControls.builtInControls -contains 'mfa' -or
+                    $policy.grantControls.authenticationStrength.requirementsSatisfied -contains 'mfa' -or
+                    $policy.grantControls.customAuthenticationFactors -ne ''
+                ) -and
+                $policy.conditions.users.includeUsers -eq 'All' -and
+                $policy.conditions.applications.includeApplications -eq 'All'
+            ) {
+                $result = $true
+                $CurrentResult = $true
+                $policiesResult.Add($policy) | Out-Null
+            } else {
+                $CurrentResult = $false
+            }
+            Write-Verbose "$($policy.displayName) - $CurrentResult"
+        }
+
+        if ( $result ) {
+            $testResult = "The following Conditional Access policies require multi-factor authentication for all users:`n`n%TestResult%"
+        } else {
+            $testResult = 'No Conditional Access policy requires multi-factor authentication for all users.'
+        }
+
+        Add-AuTestResultDetail -Result $testResult -GraphObjects $policiesResult -GraphObjectType ConditionalAccess
+
+        return $result
+    } catch {
+        Add-AuTestResultDetail -SkippedBecause Error -SkippedError $_
+        return $false
+    }
+}

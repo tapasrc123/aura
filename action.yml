@@ -1,0 +1,125 @@
+name: "Aura Action"
+description: "Monitor your Microsoft 365 tenant's security configuration using Aura, THE PowerShell-based test automation framework."
+branding:
+  icon: "check-circle"
+  color: "red"
+inputs:
+  tenant_id:
+    description: "Entra ID Tenant ID"
+    required: true
+  client_id:
+    description: "App Registration Client ID"
+    required: true
+  include_public_tests:
+    description: "Include public test repository 'tapasrc123/aura-tests' as well as private tests in the test run"
+    required: false
+    default: "true"
+  mail_recipients:
+    description: "A list of email addresses to send the test results to. Please separate multiple email addresses with a comma."
+    required: false
+    default: ""
+  mail_userid:
+    description: "The user id of the sender of the mail. This is required since the action is using application permissions."
+    required: false
+    default: ""
+  mail_testresultsuri:
+    description: "Uri to the detailed test results page."
+    required: false
+    default: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+  include_tags:
+    description: "A list of tags to include in the test run. Please separate multiple tags with a comma (without space)."
+    required: false
+    default: ""
+  exclude_tags:
+    description: "A list of tags to exclude from the test run. Please separate multiple tags with a comma (without space)."
+    required: false
+    default: ""
+  pester_verbosity:
+    description: "Pester verbosity level. Options: 'None', 'Normal', 'Detailed', 'Diagnostic'"
+    required: false
+    default: "None"
+  step_summary:
+    type: boolean
+    description: "Define whether a summary is outputted to GitHub Actions."
+    required: false
+    default: true
+  artifact_upload:
+    type: boolean
+    description: "Define whether the results are uploaded as Artifacts."
+    required: false
+    default: true
+  install_prerelease:
+    type: boolean
+    description: "Installs the preview version, allowing access to new cmdlets."
+    required: false
+    default: false
+  include_exchange:
+    type: boolean
+    description: "Include Exchange Online tests in the test run."
+    required: false
+    default: false
+  include_teams:
+    type: boolean
+    description: "Include Teams tests in the test run."
+    required: false
+    default: true
+  disable_telemetry:
+    type: boolean
+    description: "If set, telemetry information will not be logged."
+    required: false
+    default: false
+  notification_teams_webhook:
+    description: "Webhook URL for sending test results to Teams."
+    required: false
+    default: ""
+  notification_teams_channel_id:
+    description: "The ID of the Teams channel to send the test results to."
+    required: false
+    default: ""
+  notification_teams_team_id:
+    description: "The ID of the Teams team to send the test results to."
+    required: false
+    default: ""
+
+outputs:
+  results_json:
+    description: "The file location of the JSON output of the test results."
+    value: ${{ steps.aura.outputs.results_json }}
+
+
+runs:
+  using: "composite"
+  steps:
+    - name: ⚠️ Write action update notice
+      shell: bash
+      run: |
+        echo "⚠️ This action has been replaced by https://github.com/tapasrc123/aura-action  Please use that action instead."
+        echo "::notice title=New Action Available::We will be migrating to a new action, see [depreciation notice](https://github.com/tapasrc123/aura/blob/main/action/deprecation.md)"
+        cat ${{ github.action_path }}/action/deprecation.md >> $GITHUB_STEP_SUMMARY
+
+
+    - name: Run Aura 🔥
+      id: aura
+      # Set the action version to a specific version, to keep using that exact version.
+      uses: tapasrc123/aura-action@v1.2.0
+      with:
+        tenant_id: ${{ inputs.tenant_id }}
+        client_id: ${{ inputs.client_id }}
+        include_public_tests: ${{ inputs.include_public_tests }}
+        include_private_tests: true
+        include_exchange: ${{ inputs.include_exchange }}
+        include_teams: ${{ inputs.include_teams }}
+        aura_version: ${{ inputs.install_prerelease && 'preview' || 'latest' }}
+        disable_telemetry: ${{ inputs.disable_telemetry }}
+        step_summary: ${{ inputs.step_summary }}
+        mail_recipients: ${{ inputs.mail_recipients }}
+        mail_userid: ${{ inputs.mail_userid }}
+        mail_testresultsuri: ${{ inputs.mail_testresultsuri }}
+        include_tags: ${{ inputs.include_tags }}
+        exclude_tags: ${{ inputs.exclude_tags }}
+        pester_verbosity: ${{ inputs.pester_verbosity }}
+        artifact_upload: ${{ inputs.artifact_upload }}
+        notification_teams_webhook: ${{ inputs.notification_teams_webhook }}
+        notification_teams_channel_id: ${{ inputs.notification_teams_channel_id }}
+        notification_teams_team_id: ${{ inputs.notification_teams_team_id }}
+

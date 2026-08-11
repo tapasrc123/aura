@@ -1,0 +1,29 @@
+<#
+.SYNOPSIS
+    Tests your environment for compliance with the specified EIDSCA control
+
+.DESCRIPTION
+    Validates your environment against the specified EIDSCA control by comparing MS Graph result with the recommended value.
+
+.EXAMPLE
+    Test-AuEidscaControl -CheckId AP01
+
+    Returns the result of the EIDSCA AP01 control check
+
+.LINK
+    https://aura.onetapas.com/docs/commands/Test-AuEidscaControl
+#>
+function Test-AuEidscaControl {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        # Id for the EIDSCA control check to test
+        [Parameter(Mandatory)]
+        [ValidateSet(%ArrayOfControlIds%)]
+        [string]
+        $CheckId
+    )
+
+    Write-Verbose -Message "Invoking EIDSCA control check $CheckId."
+    & "%InternalFunctionNameTemplate%"
+}

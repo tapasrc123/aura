@@ -1,0 +1,21 @@
+﻿function Show-AuLogo {
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Colors are beautiful')]
+    [OutputType([string])]
+    param ()
+
+    $Version = (Import-PowerShellDataFile -Path "$PSScriptRoot/../Aura.psd1").ModuleVersion
+    # ASCII Art using style "ANSI Shadow"
+    $Logo = @"
+
+    ███╗   ███╗ █████╗ ███████╗███████╗████████╗███████╗██████╗
+    ████╗ ████║██╔══██╗██╔════╝██╔════╝╚══██╔══╝██╔════╝██╔══██╗
+    ██╔████╔██║███████║█████╗  ███████╗   ██║   █████╗  ██████╔╝
+    ██║╚██╔╝██║██╔══██║██╔══╝  ╚════██║   ██║   ██╔══╝  ██╔══██╗
+    ██║ ╚═╝ ██║██║  ██║███████╗███████║   ██║   ███████╗██║  ██║
+    ╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝ v$Version
+
+"@
+
+    Write-Host $Logo -ForegroundColor Green
+}

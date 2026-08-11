@@ -1,0 +1,495 @@
+﻿function Connect-Aura {
+   <#
+.SYNOPSIS
+   Helper method to connect to Microsoft Graph using Connect-MgGraph with the required permission scopes as well as other services such as Azure, Exchange Online, and GitHub.
+
+.DESCRIPTION
+   Use this cmdlet to connect to Microsoft Graph and the Microsoft 365 services that Aura can assess. By default, it connects to Microsoft Graph. Use -Service All to connect to Microsoft 365 services, including Microsoft Graph, Azure, Exchange Online, Security & Compliance, Microsoft Teams, SharePoint Online, and Dataverse.
+
+   Non-Microsoft 365 services such as Active Directory and GitHub are not included in -Service All and must be explicitly specified.
+
+   This command is completely optional if you are already connected to Microsoft Graph and other services using Connect-MgGraph with the required scopes.
+
+   ```
+   Connect-MgGraph -Scopes (Get-AuGraphScope)
+   ```
+
+.EXAMPLE
+   Connect-Aura
+
+   Connects only to Microsoft Graph by default.
+
+.EXAMPLE
+   Connect-Aura -Service Graph,Teams
+
+   Connects to Microsoft Graph and Microsoft Teams.
+
+.EXAMPLE
+   Connect-Aura -Service Graph,GitHub -GitHubOrganization 'mycompany'
+
+   Connects to Microsoft Graph and GitHub. GitHub sign-in is handled by Connect-AuGitHub using the Aura GitHub App device flow by default, including guided organization app install/approval when required. Automation can still use AURA_GITHUB_TOKEN or GH_TOKEN.
+
+.EXAMPLE
+   Connect-Aura -Service ActiveDirectory
+
+   Validates connectivity to the current Active Directory domain. Active Directory must be explicitly selected and is not included in -Service All.
+
+.EXAMPLE
+   Connect-Aura -Service Azure,Graph
+
+   Connects to Microsoft Graph and Azure.
+
+.EXAMPLE
+   Connect-Aura -Service Dataverse,Graph
+
+   Connects to Microsoft Graph and the Dataverse API for Copilot Studio security tests. The Dataverse connection uses the Az.Accounts module. The Copilot Studio environment is auto-discovered via the Global Discovery Service, or can be explicitly set with DataverseEnvironmentUrl in aura-config.json.
+
+.EXAMPLE
+   Connect-Aura -UseDeviceCode
+
+   Connects to Microsoft Graph and Azure using the device code flow. This will open a browser window to prompt for authentication.
+
+.EXAMPLE
+   Connect-Aura -SendMail
+
+   Connects to Microsoft Graph with the Mail.Send scope.
+
+.EXAMPLE
+   Connect-Aura -SendTeamsMessage
+
+   Connects to Microsoft Graph with the ChannelMessage.Send scope.
+
+.EXAMPLE
+   Connect-Aura -Privileged
+
+   Connects to Microsoft Graph with additional privileged scopes such as **RoleEligibilitySchedule.ReadWrite.Directory** that are required for querying Global Administrator roles in Privileged Identity Management.
+
+.EXAMPLE
+   Connect-Aura -Environment USGov -AzureEnvironment AzureUSGovernment -ExchangeEnvironmentName O365USGovGCCHigh
+
+   Connects to US Government environments for Microsoft Graph, Azure, and Exchange Online.
+
+.EXAMPLE
+   Connect-Aura -Environment USGovDoD -AzureEnvironment AzureUSGovernment -ExchangeEnvironmentName O365USGovDoD
+
+   Connects to US Department of Defense (DoD) environments for Microsoft Graph, Azure, and Exchange Online.
+
+.EXAMPLE
+   Connect-Aura -Environment China -AzureEnvironment AzureChinaCloud -ExchangeEnvironmentName O365China
+
+   Connects to China environments for Microsoft Graph, Azure, and Exchange Online.
+
+.EXAMPLE
+   Connect-Aura -GraphClientId 'f45ec3ad-32f0-4c06-8b69-47682afe0216'
+
+   Connects using a custom application with client ID f45ec3ad-32f0-4c06-8b69-47682afe0216
+
+.EXAMPLE
+   Connect-Aura -Service Graph,SharePointOnline -SharePointClientId '<Client ID>'
+
+   Connects to Microsoft Graph and SharePoint Online using the specified PnP app registration. The SharePoint admin URL is auto-discovered from the tenant's initial domain via the Graph API. Optionally, specify -SharePointAdminUrl to override the auto-discovered URL (e.g. for custom domain or government cloud tenants).
+
+.EXAMPLE
+   Connect-Aura -Service SharePointOnline -SharePointClientId 'f45ec3ad-32f0-4c06-8b69-47682afe0216' -SharePointAdminUrl 'https://contoso-admin.sharepoint.com'
+
+   Connects to SharePoint Online using the specified client ID and admin URL.
+
+.LINK
+   https://aura.onetapas.com/docs/commands/Connect-Aura
+#>
+   [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Justification = 'Colors are beautiful')]
+   [Alias('Connect-AuGraph', 'Connect-Aura')]
+   [CmdletBinding()]
+   param(
+      # If specified, the cmdlet will include the scope to send email (Mail.Send).
+      [switch] $SendMail,
+
+      # If specified, the cmdlet will include the scope to send a channel message in Teams (ChannelMessage.Send).
+      [switch] $SendTeamsMessage,
+
+      # If specified, the cmdlet will include the scopes for read write API endpoints. This is currently required for querying Global Administrator roles in PIM.
+      [switch] $Privileged,
+
+      # If specified, the cmdlet will use the device code flow to authenticate to Graph and Azure.
+      # This will open a browser window to prompt for authentication and is useful for non-interactive sessions and on Windows when SSO is not desired.
+      [switch] $UseDeviceCode,
+
+      # The environment to connect to. Default is Global. Supported values include China, Germany, Global, USGov, USGovDoD.
+      [ValidateSet('China', 'Germany', 'Global', 'USGov', 'USGovDoD')]
+      [string]$Environment = 'Global',
+
+      # The Azure environment to connect to. Default is AzureCloud. Supported values include AzureChinaCloud, AzureCloud, AzureUSGovernment.
+      [ValidateSet('AzureChinaCloud', 'AzureCloud', 'AzureUSGovernment')]
+      [string]$AzureEnvironment = 'AzureCloud',
+
+      # The Exchange environment to connect to. Default is O365Default. Supported values include O365China, O365Default, O365GermanyCloud, O365USGovDoD, O365USGovGCCHigh.
+      [ValidateSet('O365China', 'O365Default', 'O365GermanyCloud', 'O365USGovDoD', 'O365USGovGCCHigh')]
+      [string]$ExchangeEnvironmentName = 'O365Default',
+
+      # The Teams environment to connect to. Default is O365Default.
+      [ValidateSet('TeamsChina', 'TeamsGCCH', 'TeamsDOD')]
+      [string]$TeamsEnvironmentName = $null, #ToValidate: Don't use this parameter, this is the default.
+
+      # The services to connect to such as Active Directory, Azure, Dataverse (for Copilot Studio tests), EXO, GitHub, and SharePoint Online. Default is Graph. Active Directory and GitHub are not included in All and must be explicitly specified.
+      [ValidateSet('ActiveDirectory', 'All', 'Azure', 'Dataverse', 'ExchangeOnline', 'GitHub', 'Graph', 'SecurityCompliance', 'Teams', 'SharePointOnline')]
+      [string[]]$Service = 'Graph',
+
+      # The Tenant ID to connect to, if not specified the sign-in user's default tenant is used.
+      [string]$TenantId,
+
+      # The Client ID of the app to connect to for Graph. If not specified, the default Graph PowerShell CLI enterprise app will be used. Reference on how to create an enterprise app: https://learn.microsoft.com/powershell/microsoftgraph/authentication-commands?view=graph-powershell-1.0#use-delegated-access-with-a-custom-application-for-microsoft-graph-powershell
+      [string]$GraphClientId,
+
+      # The Client ID of the PnP Entra ID app for SharePoint Online. Required when Service includes SharePointOnline.
+      # Use Register-PnPEntraIDAppForInteractiveLogin to create a dedicated app, or reuse an existing Aura app
+      # registration by adding an http://localhost redirect URI and AllSites.FullControl delegated SharePoint permission.
+      [string]$SharePointClientId,
+
+      # The SharePoint admin center URL to connect to when using the SharePointOnline service (e.g. https://contoso-admin.sharepoint.com).
+      # If not specified, the URL is auto-discovered from the tenant's initial domain via the Microsoft Graph API.
+      [string]$SharePointAdminUrl,
+
+      # The certificate thumbprint for app-only authentication to SharePoint Online.
+      # Use together with -SharePointClientId and -TenantId for non-interactive/automation scenarios.
+      # The certificate must be installed in the current user's certificate store.
+      [string]$SharePointCertificateThumbprint,
+
+      # The GitHub organization login name to connect to when Service includes GitHub.
+      [string]$GitHubOrganization
+   )
+
+   $__AuSession.Connections = $Service
+
+   # Use an explicit module processing order so Microsoft Graph always connects before PnP.PowerShell.
+   # This avoids relying on Get-ModuleImportOrder, which may reorder modules by bundled DLL version.
+   $OrderedImport = @('Az.Accounts', 'ExchangeOnlineManagement', 'Microsoft.Graph.Authentication', 'MicrosoftTeams', 'PnP.PowerShell')
+   switch ($OrderedImport) {
+
+      'Az.Accounts' {
+         if ($Service -contains 'Azure' -or $Service -contains 'Dataverse' -or $Service -contains 'All') {
+            Write-Verbose 'Connecting to Microsoft Azure'
+
+            # Skip Connect-AzAccount if there is already an active Az context
+            # This preserves sessions from federated credentials, managed identity, or prior Connect-AzAccount calls
+            $existingContext = Get-AzContext -ErrorAction SilentlyContinue
+            if ($existingContext) {
+               Write-Verbose "Using existing Az context for account '$($existingContext.Account.Id)'"
+            } else {
+               try {
+                  $azWarning = @()
+                  if ($TenantId) {
+                     Connect-AzAccount -SkipContextPopulation -UseDeviceAuthentication:$UseDeviceCode -Environment $AzureEnvironment -Tenant $TenantId -WarningAction SilentlyContinue -WarningVariable azWarning
+                  } else {
+                     Connect-AzAccount -SkipContextPopulation -UseDeviceAuthentication:$UseDeviceCode -Environment $AzureEnvironment -WarningAction SilentlyContinue -WarningVariable azWarning
+                  }
+                  if ($azWarning.Count -gt 0) {
+                     foreach ($warning in $azWarning) {
+                        Write-Verbose $warning.Message
+                     }
+                  }
+               } catch [Management.Automation.CommandNotFoundException] {
+                  Write-Host "`nThe Azure PowerShell module is not installed. Please install the module using the following command. For more information see https://learn.microsoft.com/powershell/azure/install-azure-powershell" -ForegroundColor Red
+                  Write-Host "`Install-Module Az.Accounts -Scope CurrentUser`n" -ForegroundColor Yellow
+               }
+            }
+
+            # Resolve, parse, and validate the Dataverse environment at connect time.
+            # The resolved API base URL, resource URL, and environment ID are stored in
+            # session variables for use by Get-AuAIAgentInfo at test time.
+            if ($Service -contains 'Dataverse' -or $Service -contains 'All') {
+               # Step 1: Determine the Dataverse environment URL (explicit config or auto-discover)
+               $dataverseUrl = Get-AuraConfigGlobalSetting -SettingName 'DataverseEnvironmentUrl'
+               if ([string]::IsNullOrEmpty($dataverseUrl)) {
+                  Write-Verbose "No DataverseEnvironmentUrl configured. Auto-discovering via Global Discovery Service."
+                  $dataverseUrl = Get-AuDataverseEnvironmentUrl
+               } else {
+                  Write-Verbose "Using configured DataverseEnvironmentUrl: $dataverseUrl"
+               }
+
+               if (-not [string]::IsNullOrEmpty($dataverseUrl)) {
+                  # Step 2: Normalize and parse the URL into resource URL and API base URL
+                  $dataverseUrl = $dataverseUrl.TrimEnd('/')
+                  if ($dataverseUrl -notmatch '^https?://') {
+                     $dataverseUrl = "https://$dataverseUrl"
+                  }
+
+                  # Resource URL: environment host without '.api.' (used for token acquisition)
+                  $resourceUrl = $dataverseUrl -replace '\.api\.', '.'
+                  # API URL: insert .api. after the hostname prefix (used for OData calls)
+                  # e.g. https://org5acae060.crm19.dynamics.com -> https://org5acae060.api.crm19.dynamics.com
+                  $apiUrl = $resourceUrl -replace '(https://[^.]+)\.', '$1.api.'
+                  $apiBase = "$apiUrl/api/data/v9.2"
+                  $environmentId = $resourceUrl -replace 'https?://', ''
+
+                  # Step 3: Validate token acquisition for the resolved environment
+                  try {
+                     $tokenResult = Get-AzAccessToken -ResourceUrl $resourceUrl -ErrorAction Stop
+                     if ($tokenResult) {
+                        Write-Verbose "Successfully obtained Dataverse access token for $resourceUrl"
+                     }
+
+                     # Store resolved values in session for Get-AuAIAgentInfo
+                     $__AuSession.DataverseApiBase = $apiBase
+                     $__AuSession.DataverseResourceUrl = $resourceUrl
+                     $__AuSession.DataverseEnvironmentId = $environmentId
+                  } catch {
+                     Write-Host "`nFailed to obtain Dataverse access token for '$resourceUrl'. Ensure the account has permissions to access the Copilot Studio environment via the Dataverse API." -ForegroundColor Yellow
+                     Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Yellow
+                  }
+               } else {
+                  Write-Host "`nNo Dataverse environment found. Copilot Studio agent security tests will be skipped." -ForegroundColor Yellow
+                  Write-Host "You can configure 'DataverseEnvironmentUrl' in aura-config.json GlobalSettings to specify an environment explicitly." -ForegroundColor Yellow
+               }
+            }
+         }
+      }
+
+      'ExchangeOnlineManagement' {
+         $ExchangeModuleNotInstalledWarningShown = $false
+         if ($Service -contains 'ExchangeOnline' -or $Service -contains 'All') {
+            Write-Verbose 'Connecting to Microsoft Exchange Online'
+            try {
+               if ($UseDeviceCode -and $PSVersionTable.PSEdition -eq 'Desktop') {
+                  Write-Host 'The Exchange Online module in Windows PowerShell does not support device code flow authentication.' -ForegroundColor Red
+                  Write-Host '💡Please use the Exchange Online module in PowerShell Core.' -ForegroundColor Yellow
+               } elseif ( $UseDeviceCode ) {
+                  Connect-ExchangeOnline -ShowBanner:$false -Device:$UseDeviceCode -ExchangeEnvironmentName $ExchangeEnvironmentName
+               } else {
+                  Connect-ExchangeOnline -ShowBanner:$false -ExchangeEnvironmentName $ExchangeEnvironmentName
+               }
+            } catch [Management.Automation.CommandNotFoundException] {
+               Write-Host "`nThe Exchange Online module is not installed. Please install the module using the following command.`nFor more information see https://learn.microsoft.com/powershell/exchange/exchange-online-powershell-v2" -ForegroundColor Red
+               Write-Host "`nInstall-Module ExchangeOnlineManagement -Scope CurrentUser`n" -ForegroundColor Yellow
+               $ExchangeModuleNotInstalledWarningShown = $true
+            }
+         }
+
+         if ($Service -contains 'SecurityCompliance' -or $Service -contains 'All') {
+            $Environments = @{
+               'O365China'        = @{
+                  ConnectionUri    = 'https://ps.compliance.protection.partner.outlook.cn/powershell-liveid'
+                  AuthZEndpointUri = 'https://login.chinacloudapi.cn/common'
+               }
+               'O365GermanyCloud' = @{
+                  ConnectionUri    = 'https://ps.compliance.protection.outlook.com/powershell-liveid/'
+                  AuthZEndpointUri = 'https://login.microsoftonline.com/common'
+               }
+               'O365Default'      = @{
+                  ConnectionUri    = 'https://ps.compliance.protection.outlook.com/powershell-liveid/'
+                  AuthZEndpointUri = 'https://login.microsoftonline.com/common'
+               }
+               'O365USGovGCCHigh' = @{
+                  ConnectionUri    = 'https://ps.compliance.protection.office365.us/powershell-liveid/'
+                  AuthZEndpointUri = 'https://login.microsoftonline.us/common'
+               }
+               'O365USGovDoD'     = @{
+                  ConnectionUri    = 'https://l5.ps.compliance.protection.office365.us/powershell-liveid/'
+                  AuthZEndpointUri = 'https://login.microsoftonline.us/common'
+               }
+               Default            = @{
+                  ConnectionUri    = 'https://ps.compliance.protection.outlook.com/powershell-liveid/'
+                  AuthZEndpointUri = 'https://login.microsoftonline.com/common'
+               }
+            }
+            Write-Verbose 'Connecting to Microsoft Security & Compliance PowerShell'
+            if ($Service -notcontains 'ExchangeOnline' -and $Service -notcontains 'All') {
+               Write-Host "`nThe Security & Compliance module is dependent on the Exchange Online module. Please include ExchangeOnline when specifying the services.`nFor more information see https://learn.microsoft.com/powershell/exchange/connect-to-scc-powershell" -ForegroundColor Red
+            } else {
+               if ($UseDeviceCode) {
+                  Write-Host "`nThe Security & Compliance module does not support device code flow authentication." -ForegroundColor Red
+               } else {
+                  try {
+                     Connect-IPPSSession -BypassMailboxAnchoring -ConnectionUri $Environments[$ExchangeEnvironmentName].ConnectionUri -AzureADAuthorizationEndpointUri $Environments[$ExchangeEnvironmentName].AuthZEndpointUri -ShowBanner:$false
+                  } catch [Management.Automation.CommandNotFoundException] {
+                     if (-not $ExchangeModuleNotInstalledWarningShown) {
+                        Write-Host "`nThe Exchange Online module is not installed. Please install the module using the following command.`nFor more information see https://learn.microsoft.com/powershell/exchange/exchange-online-powershell-v2" -ForegroundColor Red
+                        Write-Host "`nInstall-Module ExchangeOnlineManagement -Scope CurrentUser`n" -ForegroundColor Yellow
+                     }
+                  } catch {
+                     # Cache the connection information to avoid multiple calls to Get-ConnectionInformation. See https://github.com/tapasrc123/aura/pull/1207
+                     $ExoUPN = Get-AuExo -Request ConnectionInformation | Select-Object -ExpandProperty UserPrincipalName -First 1 -ErrorAction SilentlyContinue
+                     if ($ExoUPN) {
+                        Write-Host "`nAttempting to connect to the Security & Compliance PowerShell using UPN '$ExoUPN' derived from the ExchangeOnline connection." -ForegroundColor Yellow
+                        Connect-IPPSSession -BypassMailboxAnchoring -UserPrincipalName $ExoUPN -ShowBanner:$false
+                     } else {
+                        Write-Host "`nFailed to connect to the Security & Compliance PowerShell. Please ensure you are connected to Exchange Online first." -ForegroundColor Red
+                     }
+                  }
+               }
+            }
+
+            <# Fix for Get-AdminAuditLogConfig (#1045)
+               Connect-IPPSSession imports a temporary PSSession module that breaks Get-AdminAuditLogConfig. This script
+               block removes the broken function and re-imports the temporary PSSession module for EXO, which restores
+               the working Get-AdminAuditLogConfig function.
+            #>
+            $ExchangeConnectionInformation = Get-ConnectionInformation
+            if ($ExchangeConnectionInformation | Where-Object { $_.IsEopSession -eq $true -and $_.State -eq 'Connected' }) {
+               try {
+                  # Remove the broken cmdlet and re-import the working EXO one.
+                  Remove-Item -Path 'Function:\Get-AdminAuditLogConfig' -Force -ErrorAction SilentlyContinue
+                  $ExchangeConnectionInformation | Where-Object { $_.IsEopSession -ne $true -and $_.State -eq 'Connected' } |
+                  Select-Object -ExpandProperty ModuleName |
+                  Import-Module -Function 'Get-AdminAuditLogConfig' > $null
+               } catch {
+                  Write-Error "Failed to restore Get-AdminAuditLogConfig cmdlet: $($_.Exception.Message)"
+               }
+            }
+         }
+      }
+
+      'Microsoft.Graph.Authentication' {
+         if ($Service -contains 'Graph' -or $Service -contains 'All') {
+            Write-Verbose 'Connecting to Microsoft Graph'
+            try {
+
+               $scopes = Get-AuGraphScope -SendMail:$SendMail -SendTeamsMessage:$SendTeamsMessage -Privileged:$Privileged
+
+               $connectParams = @{
+                  Scopes        = $scopes
+                  NoWelcome     = $true
+                  UseDeviceCode = $UseDeviceCode
+                  Environment   = $Environment
+               }
+
+               if ($GraphClientId) {
+                  $connectParams['ClientId'] = $GraphClientId
+               }
+               if ($TenantId) {
+                  $connectParams['TenantId'] = $TenantId
+               }
+
+               Write-Verbose "🦒 Connecting to Microsoft Graph with parameters:"
+               Write-Verbose ($connectParams | ConvertTo-Json -Depth 5)
+               Connect-MgGraph @connectParams
+
+               #ensure TenantId
+               if (-not $TenantId) {
+                  $TenantId = (Get-MgContext).TenantId
+               }
+
+            } catch [Management.Automation.CommandNotFoundException] {
+               Write-Host "`nThe Graph PowerShell module is not installed. Please install the module using the following command. For more information see https://learn.microsoft.com/powershell/microsoftgraph/installation" -ForegroundColor Red
+               Write-Host "`Install-Module Microsoft.Graph.Authentication -Scope CurrentUser`n" -ForegroundColor Yellow
+            }
+         }
+      }
+
+      'MicrosoftTeams' {
+         if ($Service -contains 'Teams' -or $Service -contains 'All') {
+            Write-Verbose 'Connecting to Microsoft Teams'
+            try {
+               if ($UseDeviceCode) {
+                  Connect-MicrosoftTeams -UseDeviceAuthentication
+               } elseif ($TeamsEnvironmentName) {
+                  Connect-MicrosoftTeams -TeamsEnvironmentName $TeamsEnvironmentName > $null
+               } else {
+                  Connect-MicrosoftTeams > $null
+               }
+            } catch [Management.Automation.CommandNotFoundException] {
+               Write-Host "`nThe Teams PowerShell module is not installed. Please install the module using the following command. For more information see https://learn.microsoft.com/microsoftteams/teams-powershell-install" -ForegroundColor Red
+               Write-Host "`Install-Module MicrosoftTeams -Scope CurrentUser`n" -ForegroundColor Yellow
+            }
+         }
+      }
+
+      'PnP.PowerShell' {
+         # SharePoint Online via PnP — must run AFTER Graph to avoid Microsoft.Graph.Core DLL conflict
+         if ($Service -contains 'SharePointOnline' -or $Service -contains 'All') {
+            Write-Verbose 'Connecting to SharePoint Online via PnP'
+
+            $resolvedSharePointClientId = $SharePointClientId
+
+            if (-not $resolvedSharePointClientId) {
+               Write-Warning "SharePoint Online connection skipped because -SharePointClientId was not provided."
+               break
+            }
+
+            try {
+               # Use the provided admin URL or auto-discover from the tenant's initial domain
+               if ($SharePointAdminUrl) {
+                  $spoAdminUrl = $SharePointAdminUrl
+                  Write-Verbose "Using provided SharePoint admin URL: $spoAdminUrl"
+               } elseif ($Service -notcontains 'Graph' -and $Service -notcontains 'All') {
+                  Write-Host "SharePoint admin URL auto-discovery requires a Microsoft Graph connection. Either include 'Graph' in -Service or supply -SharePointAdminUrl explicitly (e.g. https://contoso-admin.sharepoint.com)." -ForegroundColor Red
+                  break
+               } else {
+                  $domains = Invoke-AuGraphRequest -RelativeUri "domains" -ApiVersion "v1.0"
+                  $initialDomain = ($domains | Where-Object { $_.isInitial -eq $true }).id
+                  $tenantPrefix = ($initialDomain -split '\.')[0]
+                  $spoAdminUrl = "https://$tenantPrefix-admin.sharepoint.com"
+                  Write-Verbose "Resolved SharePoint admin URL: $spoAdminUrl"
+               }
+               if (-not (Get-Module -ListAvailable -Name PnP.PowerShell)) {
+                  Write-Host "`nInstall-Module PnP.PowerShell -Scope CurrentUser`n" -ForegroundColor Yellow
+                  Write-Host "The PnP.PowerShell module is not installed. For more information see https://pnp.github.io/powershell/articles/installation.html" -ForegroundColor Red
+                  break
+               }
+
+               Import-Module PnP.PowerShell -ErrorAction Stop
+               $pnpParams = @{
+                  Url      = $spoAdminUrl
+                  ClientId = $resolvedSharePointClientId
+               }
+               if ($SharePointCertificateThumbprint) {
+                  if (-not $TenantId) {
+                     Write-Host "The -TenantId parameter is required when using -SharePointCertificateThumbprint." -ForegroundColor Red
+                     break
+                  }
+                  $pnpParams['Thumbprint'] = $SharePointCertificateThumbprint
+                  $pnpParams['Tenant'] = $TenantId
+               } else {
+                  if ($UseDeviceCode) {
+                     $pnpParams['DeviceLogin'] = $true
+                  } else {
+                     $pnpParams['Interactive'] = $true
+                  }
+                  if ($TenantId) {
+                     $pnpParams['Tenant'] = $TenantId
+                  }
+               }
+               Connect-PnPOnline @pnpParams
+            } catch {
+               Write-Host "Failed to connect to SharePoint Online: $($_.Exception.Message)" -ForegroundColor Red
+            }
+         }
+      }
+   }
+
+   if ($Service -contains 'GitHub') {
+      Write-Verbose 'Connecting to GitHub'
+      $connectGitHubParams = @{}
+      if (-not [string]::IsNullOrWhiteSpace($GitHubOrganization)) {
+         $connectGitHubParams['Organization'] = $GitHubOrganization
+      }
+      Connect-AuGitHub @connectGitHubParams
+   }
+
+   # Active Directory connection validation is separate from OrderedImport because it has no module conflicts.
+   if ($Service -contains 'ActiveDirectory') {
+      Write-Verbose 'Validating Active Directory connectivity'
+      try {
+         $adRootDSE = Get-ADRootDSE -ErrorAction Stop
+         $__AuSession.ADConnection = @{
+            Connected                  = $true
+            DefaultNamingContext       = $adRootDSE.defaultNamingContext
+            ConfigurationNamingContext = $adRootDSE.configurationNamingContext
+            SchemaNamingContext        = $adRootDSE.schemaNamingContext
+            DomainController           = $adRootDSE.dnsHostName
+         }
+         Write-Verbose "Connected to AD: $($adRootDSE.dnsHostName)"
+      } catch [Management.Automation.CommandNotFoundException] {
+         $__AuSession.ADConnection = @{
+            Connected = $false
+            Error     = 'The Active Directory module is not installed. Please install RSAT-AD-PowerShell or run on a domain-joined machine.'
+         }
+         Write-Error 'The Active Directory module is not installed. Please install RSAT-AD-PowerShell or run on a domain-joined machine.'
+      } catch {
+         $__AuSession.ADConnection = @{
+            Connected = $false
+            Error     = $_.Exception.Message
+         }
+         Write-Error "Failed to connect to Active Directory: $($_.Exception.Message)"
+      }
+   }
+} # end function Connect-Aura
